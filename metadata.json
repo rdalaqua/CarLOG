@@ -1,6 +1,6 @@
 {
   "name": "Carlog - Gestão de Manutenção",
-  "description": "Uma aplicação mobile-first para gerenciar revisões e trocas de peças de veículos, com insights inteligentes via IA.",
+  "description": "Uma aplicação mobile-first para gerenciar revisões e trocas de peças de veículos.",
   "requestFramePermissions": [
     "camera"
   ]

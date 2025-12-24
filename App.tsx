@@ -25,10 +25,12 @@ import {
   KeyRound,
   CheckCircle2,
   Pencil,
-  ChevronDown
+  ChevronDown,
+  CheckSquare,
+  Square,
+  X
 } from 'lucide-react';
 import { AppView, Car, MaintenanceRecord, ServiceType, User } from './types';
-import { getMaintenanceInsights } from './services/geminiService';
 
 // --- LocalStorage Helpers ---
 const STORAGE_KEY_USERS = 'carlog_users';
@@ -57,7 +59,7 @@ const Button: React.FC<{
   const variants = {
     primary: "bg-blue-600 text-white shadow-lg shadow-blue-200 hover:bg-blue-700",
     secondary: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50",
-    danger: "bg-rose-50 text-rose-600 border border-rose-100 hover:bg-rose-100",
+    danger: "bg-rose-600 text-white shadow-lg shadow-rose-200 hover:bg-rose-700",
     ghost: "bg-transparent text-slate-500 hover:bg-slate-100"
   };
   
@@ -114,10 +116,9 @@ export default function App() {
   const [selectedCarId, setSelectedCarId] = useState<string | null>(null);
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
   const [dashboardYear, setDashboardYear] = useState(new Date().getFullYear());
-  const [aiInsight, setAiInsight] = useState<string | null>(null);
-  const [loadingAi, setLoadingAi] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [passwordChangeSuccess, setPasswordChangeSuccess] = useState(false);
+  const [selectedRecordIds, setSelectedRecordIds] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
@@ -242,16 +243,10 @@ export default function App() {
     setView('home');
   };
 
-  /**
-   * REFACTORED DELETION: Cascading delete
-   * Removes both the car and all its associated maintenance records.
-   */
   const deleteCar = (id: string) => {
     if (window.confirm('Atenção: Isso excluirá o veículo e TODO o seu histórico de manutenções. Continuar?')) {
-      // Functional update to ensure we always have latest state
       setRecords(prev => prev.filter(r => r.carId !== id));
       setCars(prev => prev.filter(c => c.id !== id));
-      
       setSelectedCarId(null);
       setView('home');
     }
@@ -260,6 +255,45 @@ export default function App() {
   const deleteRecord = (id: string) => {
     if (window.confirm('Excluir este registro permanentemente?')) {
       setRecords(prev => prev.filter(r => r.id !== id));
+      // Limpar seleção se o item excluído estiver selecionado
+      if (selectedRecordIds.has(id)) {
+        setSelectedRecordIds(prev => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }
+    }
+  };
+
+  const deleteSelectedRecords = () => {
+    const idsToDelete = Array.from(selectedRecordIds);
+    if (idsToDelete.length === 0) return;
+
+    const msg = idsToDelete.length === 1 
+      ? 'Excluir este registro permanentemente?' 
+      : `Excluir os ${idsToDelete.length} registros selecionados permanentemente?`;
+      
+    if (window.confirm(msg)) {
+      setRecords(prev => prev.filter(r => !idsToDelete.includes(r.id)));
+      setSelectedRecordIds(new Set());
+    }
+  };
+
+  const toggleRecordSelection = (id: string) => {
+    setSelectedRecordIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedRecordIds.size === carRecords.length) {
+      setSelectedRecordIds(new Set());
+    } else {
+      setSelectedRecordIds(new Set(carRecords.map(r => r.id)));
     }
   };
 
@@ -324,7 +358,6 @@ export default function App() {
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       byMonth[key] = (byMonth[key] || 0) + (r.cost || 0);
       
-      // Filter activity for the specific dashboardYear
       if (d.getFullYear() === dashboardYear) {
         hasServiceInMonth[d.getMonth()] = true;
       }
@@ -366,14 +399,6 @@ export default function App() {
     setEditingRecordId(null);
   }
 
-  const requestAiInsight = async () => {
-    if (!selectedCar) return;
-    setLoadingAi(true);
-    const insight = await getMaintenanceInsights(selectedCar, carRecords);
-    setAiInsight(insight);
-    setLoadingAi(false);
-  };
-
   if (view === 'login' || !currentUser) {
     return (
       <div className="max-w-md mx-auto min-h-screen bg-white flex flex-col items-center justify-center p-8">
@@ -407,6 +432,7 @@ export default function App() {
               } else if (view === 'car-details') {
                 setView('home');
                 setSelectedCarId(null);
+                setSelectedRecordIds(new Set());
               } else {
                 setView('home');
               }
@@ -432,14 +458,16 @@ export default function App() {
           </h1>
         </div>
         {view === 'car-details' && selectedCar && (
-          <button 
-            type="button"
-            onClick={(e) => { e.stopPropagation(); deleteCar(selectedCar.id); }} 
-            className="p-2.5 text-rose-500 hover:bg-rose-50 rounded-full active:scale-90 transition-all bg-rose-50/50"
-            title="Excluir Veículo"
-          >
-            <Trash2 size={20} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button 
+              type="button"
+              onClick={(e) => { e.stopPropagation(); deleteCar(selectedCar.id); }} 
+              className="p-2.5 text-slate-400 hover:bg-slate-50 rounded-full active:scale-90 transition-all"
+              title="Excluir Veículo"
+            >
+              <Trash2 size={20} />
+            </button>
+          </div>
         )}
       </header>
 
@@ -488,8 +516,6 @@ export default function App() {
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="font-bold flex items-center gap-2"><CalendarIcon size={18} className="text-blue-500"/> Atividade Mensal</h3>
-                
-                {/* Dashboard Year Selection UI */}
                 <div className="relative">
                   <select 
                     value={dashboardYear} 
@@ -551,55 +577,66 @@ export default function App() {
               <Button variant="secondary" onClick={() => setView('import-data')} className="flex-1 text-sm"><Upload size={16}/> Importar</Button>
             </div>
 
-            <div className="bg-indigo-50 border border-indigo-100 p-5 rounded-3xl">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2 text-indigo-700"><AlertCircle size={20} /><span className="font-bold">Análise Inteligente</span></div>
-                {!aiInsight && !loadingAi && <button onClick={requestAiInsight} className="text-indigo-600 text-xs font-bold hover:underline">Gerar agora</button>}
-              </div>
-              {loadingAi ? <div className="flex items-center gap-3 text-indigo-400 py-2"><div className="animate-spin rounded-full h-4 w-4 border-2 border-indigo-500 border-t-transparent"></div><span className="text-sm">Gemini está analisando...</span></div> 
-              : aiInsight ? <div className="text-sm text-indigo-900 whitespace-pre-wrap leading-relaxed">{aiInsight}</div> 
-              : <p className="text-xs text-indigo-600/70 italic">Toque para receber sugestões baseadas no seu histórico.</p>}
-            </div>
-
             <div className="space-y-4">
-              <h3 className="font-bold text-slate-800">Histórico de Serviços</h3>
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-slate-800">Histórico de Serviços</h3>
+                {carRecords.length > 0 && (
+                  <button 
+                    onClick={toggleSelectAll} 
+                    className="text-xs font-bold text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-lg"
+                  >
+                    {selectedRecordIds.size === carRecords.length ? 'Desmarcar Tudo' : 'Selecionar Tudo'}
+                  </button>
+                )}
+              </div>
+              
               {carRecords.length === 0 ? (
                  <div className="bg-white border-2 border-dashed border-slate-200 rounded-3xl p-10 text-center text-slate-400 text-sm">
                   Nenhum registro encontrado.
                 </div>
               ) : (
-                carRecords.map(record => (
-                  <div key={record.id} className="bg-white p-4 rounded-2xl border border-slate-100 flex gap-4 group relative items-start">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${record.type === ServiceType.REPLACEMENT ? 'bg-orange-50 text-orange-500' : 'bg-emerald-50 text-emerald-500'}`}>
-                      {record.type === ServiceType.REPLACEMENT ? <Wrench size={18} /> : <Info size={18} />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-start">
-                        <h4 className="font-bold text-slate-900 truncate pr-2">{record.partName}</h4>
-                        <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap">{new Date(record.date).toLocaleDateString('pt-BR')}</span>
+                carRecords.map(record => {
+                  const isSelected = selectedRecordIds.has(record.id);
+                  return (
+                    <div 
+                      key={record.id} 
+                      onClick={() => toggleRecordSelection(record.id)}
+                      className={`bg-white p-4 rounded-2xl border transition-all flex gap-4 group relative items-start cursor-pointer ${isSelected ? 'border-blue-500 ring-1 ring-blue-500 shadow-md shadow-blue-50' : 'border-slate-100 hover:border-slate-200'}`}
+                    >
+                      <div className={`mt-1 flex-shrink-0 ${isSelected ? 'text-blue-500' : 'text-slate-300'}`}>
+                        {isSelected ? <CheckSquare size={20} /> : <Square size={20} />}
                       </div>
-                      <p className="text-xs text-slate-500">{record.mileage.toLocaleString()} KM • R$ {record.cost?.toLocaleString() || 0}</p>
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${record.type === ServiceType.REPLACEMENT ? 'bg-orange-50 text-orange-500' : 'bg-emerald-50 text-emerald-500'}`}>
+                        {record.type === ServiceType.REPLACEMENT ? <Wrench size={18} /> : <Info size={18} />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-start">
+                          <h4 className="font-bold text-slate-900 truncate pr-2">{record.partName}</h4>
+                          <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap">{new Date(record.date).toLocaleDateString('pt-BR')}</span>
+                        </div>
+                        <p className="text-xs text-slate-500">{record.mileage.toLocaleString()} KM • R$ {record.cost?.toLocaleString() || 0}</p>
+                      </div>
+                      <div className="flex flex-col gap-2 ml-2">
+                        <button 
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); startEditingRecord(record); }} 
+                          className="p-2.5 text-slate-400 hover:text-blue-600 transition-colors bg-slate-50 rounded-xl active:scale-90"
+                          title="Editar"
+                        >
+                          <Pencil size={18}/>
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); deleteRecord(record.id); }} 
+                          className="p-2.5 text-slate-400 hover:text-rose-600 transition-colors bg-rose-50 rounded-xl active:scale-90"
+                          title="Excluir item"
+                        >
+                          <Trash2 size={18}/>
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex flex-col gap-2 ml-2">
-                      <button 
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); startEditingRecord(record); }} 
-                        className="p-2.5 text-slate-500 hover:text-blue-600 transition-colors bg-slate-50 rounded-xl active:scale-90"
-                        title="Editar"
-                      >
-                        <Pencil size={18}/>
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); deleteRecord(record.id); }} 
-                        className="p-2.5 text-slate-400 hover:text-rose-600 transition-colors bg-rose-50/50 rounded-xl active:scale-90"
-                        title="Excluir"
-                      >
-                        <Trash2 size={18}/>
-                      </button>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -680,7 +717,7 @@ export default function App() {
               </button>
             </div>
             
-            <p className="text-center text-slate-400 text-xs py-4 uppercase tracking-widest font-bold">Carlog v1.5.0</p>
+            <p className="text-center text-slate-400 text-xs py-4 uppercase tracking-widest font-bold">Carlog v1.6.0</p>
           </div>
         )}
 
@@ -730,6 +767,34 @@ export default function App() {
           </form>
         )}
       </main>
+
+      {/* Bulk Delete Bar */}
+      {selectedRecordIds.size > 0 && view === 'car-details' && (
+        <div className="fixed bottom-32 left-6 right-6 z-40 animate-in slide-in-from-bottom-8 duration-300">
+          <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-2xl flex items-center justify-between border border-white/10">
+            <div className="flex items-center gap-3">
+              <div className="bg-blue-600 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm shadow-sm">
+                {selectedRecordIds.size}
+              </div>
+              <span className="text-sm font-semibold opacity-90">itens selecionados</span>
+            </div>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setSelectedRecordIds(new Set())}
+                className="p-2 text-white/50 hover:bg-white/10 rounded-xl"
+              >
+                <X size={20} />
+              </button>
+              <button 
+                onClick={deleteSelectedRecords}
+                className="bg-rose-600 hover:bg-rose-700 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors"
+              >
+                <Trash2 size={16} /> Excluir Todos
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Navigation */}
       {(view === 'home' || view === 'dashboard' || view === 'settings' || view === 'car-details' || view === 'change-password') && (
